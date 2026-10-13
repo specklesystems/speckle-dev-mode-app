@@ -1,4 +1,4 @@
-import type { ContainerNode, TreeNode } from './tree'
+import type { ContainerNode, ObjectProperty, TreeNode } from './tree'
 import { getObjectProperties } from './tree'
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -10,6 +10,83 @@ function el<K extends keyof HTMLElementTagNameMap>(
   if (className) node.className = className
   if (text !== undefined) node.textContent = text
   return node
+}
+
+/**
+ * A dumped-flat property list (125+ dotted paths like
+ * `properties.Material Quantities.Gas.Air.area`, one per row) was illegible
+ * next to the legacy graph's proper nesting. Grouping by path segment into
+ * the same collapsed-by-default node/children structure as the rest of the
+ * tree — matching `renderLegacy.ts`'s `renderObjectEntries` — makes a wide
+ * object's properties navigable instead of a wall of text.
+ */
+interface PropGroup {
+  kind: 'group'
+  segment: string
+  children: PropNode[]
+}
+interface PropLeaf {
+  kind: 'leaf'
+  segment: string
+  prop: ObjectProperty
+}
+type PropNode = PropGroup | PropLeaf
+
+function buildPropertyTree(props: ObjectProperty[]): PropNode[] {
+  const root: PropGroup = { kind: 'group', segment: '', children: [] }
+  for (const prop of props) {
+    const segments = prop.path.split('.')
+    let current = root
+    segments.forEach((segment, i) => {
+      if (i === segments.length - 1) {
+        current.children.push({ kind: 'leaf', segment, prop })
+        return
+      }
+      let next = current.children.find(
+        (c): c is PropGroup => c.kind === 'group' && c.segment === segment
+      )
+      if (!next) {
+        next = { kind: 'group', segment, children: [] }
+        current.children.push(next)
+      }
+      current = next
+    })
+  }
+  return root.children
+}
+
+function renderPropNode(node: PropNode): HTMLElement {
+  const row = el('div', 'node')
+  if (node.kind === 'leaf') {
+    const header = el('div', 'node-header leaf')
+    header.appendChild(el('span', 'toggle'))
+    header.appendChild(el('span', 'label', node.segment))
+    header.appendChild(
+      el('span', 'prop-value', `${node.prop.value ?? 'null'}${node.prop.unit ? ` ${node.prop.unit}` : ''}`)
+    )
+    row.appendChild(header)
+    return row
+  }
+
+  const header = el('div', 'node-header expandable')
+  const toggle = el('span', 'toggle', '▶')
+  header.appendChild(toggle)
+  header.appendChild(el('span', 'label', node.segment))
+  header.appendChild(el('span', 'count', `${node.children.length}`))
+  row.appendChild(header)
+
+  const childWrap = el('div', 'children collapsed')
+  row.appendChild(childWrap)
+  let expanded = false
+  header.addEventListener('click', () => {
+    expanded = !expanded
+    toggle.textContent = expanded ? '▼' : '▶'
+    childWrap.classList.toggle('collapsed', !expanded)
+    if (expanded && childWrap.childNodes.length === 0) {
+      for (const child of node.children) childWrap.appendChild(renderPropNode(child))
+    }
+  })
+  return row
 }
 
 function renderNode(node: TreeNode, schema: string, expandedByDefault = false): HTMLElement {
@@ -64,13 +141,8 @@ function renderNode(node: TreeNode, schema: string, expandedByDefault = false): 
             propsWrap.appendChild(el('div', 'empty', '(no properties)'))
             return
           }
-          for (const prop of props) {
-            const propRow = el('div', 'prop')
-            propRow.appendChild(el('span', 'prop-path', prop.path))
-            propRow.appendChild(
-              el('span', 'prop-value', `${prop.value ?? 'null'}${prop.unit ? ` ${prop.unit}` : ''}`)
-            )
-            propsWrap.appendChild(propRow)
+          for (const propNode of buildPropertyTree(props)) {
+            propsWrap.appendChild(renderPropNode(propNode))
           }
         })
       }
