@@ -20,6 +20,7 @@ rows. For those, the kiosk falls back to the legacy graph, resolving each
 
 ```bash
 mise run i
+cp .env.example .env.local   # fill in VITE_SPECKLE_APP_ID — see Auth below
 mise run dev
 ```
 
@@ -42,12 +43,21 @@ admin rights neither of us has yet; see the workflow file's comment).
 
 ## Auth
 
-Registered as a Speckle OAuth app (PKCE, public client — no secret; appId
-`f67c31ff29` in `src/auth.ts`), via `appCreate` with a single granular scope,
-`project.core.read` (the new `domain.feature.verb` token-scope vocabulary
-alongside the legacy `streams:read` style — covers "your projects, and the
-models, versions and objects inside them", which is all `/v2/.../artifacts`
-checks). One sign-in path: **"sign in with Speckle"** → `/authn/verify/{appId}/{challenge}`,
+Registered as a Speckle OAuth app (PKCE, public client — no secret), via
+`appCreate` with a single granular scope, `project.core.read` (the new
+`domain.feature.verb` token-scope vocabulary alongside the legacy
+`streams:read` style — covers "your projects, and the models, versions and
+objects inside them", which is all `/v2/.../artifacts` checks). The app id
+isn't hardcoded (`src/auth.ts` reads `VITE_SPECKLE_APP_ID`, keeping the repo
+itself neutral of any one deployment's registration) — there are two
+registered apps in practice, since a `redirectUrl` is pinned to one origin:
+`VITE_SPECKLE_APP_ID` in `.env.local` (gitignored) for local dev, redirecting
+to `http://localhost:5183/`; the `SPECKLE_APP_ID` repository secret, injected
+as the same env var in `deploy.yml`'s build step, for the hosted Pages
+origin. Missing it fails fast at startup rather than silently hitting
+`/authn/verify/undefined/...`.
+
+One sign-in path: **"sign in with Speckle"** → `/authn/verify/{appId}/{challenge}`,
 the consent page; its own `auth` middleware handles a logged-out browser by
 redirecting to the regular login screen — which already has its own
 "Continue with SSO" option — and back. That works identically whether the
