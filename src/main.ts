@@ -7,7 +7,8 @@ import {
   SsoSessionExpiredError,
   type ModelRef,
   type VersionRef,
-  type VersionFormat
+  type VersionFormat,
+  type VersionInfo
 } from './speckleApi'
 import { bundleMountSql, toBundleSchema } from './bundleSchema'
 import { registerParquetBuffer, runSqlBatch } from './duckdb'
@@ -113,6 +114,27 @@ const statusAction = document.createElement('div')
 statusAction.className = 'status-action'
 app.appendChild(statusAction)
 
+/** Shown whenever a version resolved BOTH a mounted bundle/packfile schema
+ * (even an empty one — e.g. `bundle_fd8904416a` mounted with 0 objects for
+ * https://app.speckle.systems/projects/7672e81243/models/2bf680bbf1, which
+ * is itself useful to see, not just a dead end) and a legacy referencedObject
+ * to walk. Lets you flip between "what migrated" and "what's actually there"
+ * instead of the app silently picking one. */
+const viewSwitcher = document.createElement('div')
+viewSwitcher.className = 'view-switcher'
+viewSwitcher.hidden = true
+app.appendChild(viewSwitcher)
+
+const bundleViewButton = document.createElement('button')
+bundleViewButton.className = 'view-tab'
+bundleViewButton.textContent = 'bundle'
+viewSwitcher.appendChild(bundleViewButton)
+
+const legacyViewButton = document.createElement('button')
+legacyViewButton.className = 'view-tab'
+legacyViewButton.textContent = 'legacy object graph'
+viewSwitcher.appendChild(legacyViewButton)
+
 const treeMount = document.createElement('div')
 treeMount.id = 'tree'
 app.appendChild(treeMount)
@@ -140,7 +162,9 @@ function setSsoExpiredStatus(
   err: SsoSessionExpiredError,
   ref: VersionRef,
   token: string,
-  format: VersionFormat
+  format: VersionFormat,
+  info: VersionInfo,
+  legacyRef: LegacyRef
 ): void {
   status.textContent = `${err.message}. Re-authenticate, then retry.`
   status.classList.add('error')
@@ -154,7 +178,7 @@ function setSsoExpiredStatus(
   const retryButton = document.createElement('button')
   retryButton.textContent = 'retry'
   retryButton.addEventListener('click', () => {
-    attach(ref, token, format).catch(() => {})
+    attach(ref, token, format, info, legacyRef).catch(() => {})
   })
   statusAction.appendChild(retryButton)
 }
@@ -163,6 +187,21 @@ let lastSchema: string | null = null
 let lastTree: ContainerNode | null = null
 let lastLegacyRef: LegacyRef | null = null
 let lastLegacyRoot: LegacyObject | null = null
+
+type ViewMode = 'bundle' | 'legacy'
+
+/** What's available to switch between for the CURRENTLY loaded version —
+ * reset at the top of every {@link resolveAndAttach} call, since none of it
+ * carries over to a different model/version. */
+interface LoadedViews {
+  bundleSchema: string | null
+  bundleRoot: ContainerNode | null
+  legacyRef: LegacyRef
+  legacyObjectId: string | null
+  token: string
+}
+let currentLoad: LoadedViews | null = null
+let currentView: ViewMode | null = null
 
 /**
  * DOM-independent core: fetch, download, mount and build the tree for one
@@ -201,11 +240,17 @@ export async function attachCore(
 }
 
 /** Renders into the live UI as a side effect; rethrows so a caller (the click
- * handler, or `window.speckleDevMode`) can also tell success from failure. */
+ * handler, or `window.speckleDevMode`) can also tell success from failure.
+ * Also sets up `currentLoad`/the view switcher — `info`/`legacyRef` are only
+ * needed for that, not for the attach itself, but threading them through
+ * here (rather than back in the caller) means the SSO retry path gets the
+ * same switcher bookkeeping as a first-time success. */
 async function attach(
   ref: VersionRef,
   token: string,
-  format: VersionFormat
+  format: VersionFormat,
+  info: VersionInfo,
+  legacyRef: LegacyRef
 ): Promise<{ schema: string; format: VersionFormat; root: ContainerNode }> {
   loadButton.disabled = true
   treeMount.innerHTML = ''
@@ -213,10 +258,33 @@ async function attach(
     const result = await attachCore(ref, token, (text) => setStatus(text))
     renderTree(result.root, result.schema, treeMount)
     setStatus(`loaded ${result.schema} (${format}) — ${result.root.totalObjectCount} objects`)
+
+    currentLoad = {
+      bundleSchema: result.schema,
+      bundleRoot: result.root,
+      legacyRef,
+      legacyObjectId: info.referencedObject,
+      token
+    }
+    currentView = 'bundle'
+    if (info.referencedObject) {
+      if (result.root.totalObjectCount === 0) {
+        await showLegacyGraph(
+          legacyRef,
+          info.referencedObject,
+          token,
+          `${result.schema} (${format}) mounted with 0 objects`
+        )
+        currentView = 'legacy'
+      }
+      viewSwitcher.hidden = false
+      updateViewSwitcherUI()
+    }
+
     return { ...result, format }
   } catch (err) {
     if (err instanceof SsoSessionExpiredError) {
-      setSsoExpiredStatus(err, ref, token, format)
+      setSsoExpiredStatus(err, ref, token, format, info, legacyRef)
     } else {
       setStatus(err instanceof Error ? err.message : String(err), true)
     }
@@ -247,15 +315,59 @@ async function showLegacyGraph(
   legacyRef: LegacyRef,
   objectId: string,
   token: string,
-  reason: string
+  reason: string | null
 ): Promise<void> {
-  setStatus(`${reason} — loading legacy object graph…`)
+  const prefix = reason ? `${reason} — ` : ''
+  setStatus(`${prefix}loading legacy object graph…`)
   const root = await fetchLegacyObject(legacyRef, objectId, token)
   lastLegacyRef = legacyRef
   lastLegacyRoot = root
   renderLegacyTree(root, legacyRef, token, treeMount)
-  setStatus(`${reason} — showing legacy object graph (${root.totalChildrenCount} total children)`)
+  setStatus(`${prefix}showing legacy object graph (${root.totalChildrenCount} total children)`)
 }
+
+function updateViewSwitcherUI(): void {
+  bundleViewButton.classList.toggle('active', currentView === 'bundle')
+  legacyViewButton.classList.toggle('active', currentView === 'legacy')
+}
+
+/** Switches the tree panel between the two views for the currently loaded
+ * version, fetching the legacy graph on first switch to it and reusing
+ * `lastLegacyRoot` afterward — `resolveAndAttach` clears that cache on every
+ * new load, so "cached" here always means "cached for this version". */
+async function switchView(mode: ViewMode): Promise<void> {
+  if (!currentLoad || currentView === mode) return
+
+  if (mode === 'bundle') {
+    if (currentLoad.bundleRoot === null || currentLoad.bundleSchema === null) return
+    currentView = 'bundle'
+    updateViewSwitcherUI()
+    renderTree(currentLoad.bundleRoot, currentLoad.bundleSchema, treeMount)
+    setStatus(`showing ${currentLoad.bundleSchema} — ${currentLoad.bundleRoot.totalObjectCount} objects`)
+    return
+  }
+
+  if (!currentLoad.legacyObjectId) return
+  currentView = 'legacy'
+  updateViewSwitcherUI()
+  if (lastLegacyRoot) {
+    renderLegacyTree(lastLegacyRoot, currentLoad.legacyRef, currentLoad.token, treeMount)
+    setStatus(`showing legacy object graph (${lastLegacyRoot.totalChildrenCount} total children)`)
+    return
+  }
+  try {
+    await showLegacyGraph(currentLoad.legacyRef, currentLoad.legacyObjectId, currentLoad.token, null)
+  } catch (err) {
+    setStatus(err instanceof Error ? err.message : String(err), true)
+  }
+}
+
+bundleViewButton.addEventListener('click', () => {
+  void switchView('bundle')
+})
+legacyViewButton.addEventListener('click', () => {
+  void switchView('legacy')
+})
 
 /** `window.speckleDevMode.resolveLegacyObject(id)` — the data-level equivalent
  * of clicking a `{referencedId, speckle_type: "reference"}` row open. Walking
@@ -272,10 +384,12 @@ async function resolveLegacyObject(objectId: string): Promise<LegacyObject> {
 
 /**
  * Resolves a model URL to a concrete version (latest, if the URL named none)
- * and attaches it. Falls back to the legacy object graph when there's
- * nothing bundle-shaped to mount — either the version never had a bundle or
- * packfile at all (`format === 'json'`), or it mounted with zero objects
- * (a bundle exists, but the source data had nothing geometry-shaped in it).
+ * and attaches it. When the version has both a mounted bundle/packfile
+ * schema AND a legacy referencedObject, shows the view switcher so either
+ * can be inspected — defaulting to whichever actually has content (the
+ * legacy graph when the bundle mounted empty, the bundle otherwise). Shows
+ * only the legacy graph, with no switcher, when there's no bundle/packfile
+ * at all (`format === 'json'`).
  */
 async function resolveAndAttach(
   model: ModelRef,
@@ -285,31 +399,31 @@ async function resolveAndAttach(
   const info = await resolveVersionInfo(model, model.versionId, token)
   const legacyRef: LegacyRef = { origin: model.origin, projectId: model.projectId }
 
+  lastLegacyRef = null
+  lastLegacyRoot = null
+  currentLoad = null
+  currentView = null
+  viewSwitcher.hidden = true
+
   if (info.format === 'json') {
     if (!info.referencedObject) {
       setStatus('This version has no bundle, packfile, or referencedObject at all — nothing to show.', true)
       return { schema: null, format: info.format, root: null }
     }
-    await showLegacyGraph(
+    currentLoad = {
+      bundleSchema: null,
+      bundleRoot: null,
       legacyRef,
-      info.referencedObject,
-      token,
-      'No bundle or packfile for this version'
-    )
+      legacyObjectId: info.referencedObject,
+      token
+    }
+    currentView = 'legacy'
+    await showLegacyGraph(legacyRef, info.referencedObject, token, 'No bundle or packfile for this version')
     return { schema: null, format: info.format, root: null }
   }
 
   const ref: VersionRef = { ...model, versionId: info.versionId }
-  const result = await attach(ref, token, info.format)
-  if (result.root.totalObjectCount === 0 && info.referencedObject) {
-    await showLegacyGraph(
-      legacyRef,
-      info.referencedObject,
-      token,
-      `${result.schema} (${info.format}) mounted with 0 objects`
-    )
-  }
-  return result
+  return attach(ref, token, info.format, info, legacyRef)
 }
 
 /** Mirrors the model URL into `?url=` on a successful load — the same param

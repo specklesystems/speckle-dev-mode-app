@@ -216,6 +216,44 @@ body {
   background: var(--button-secondary-fill-hover);
 }
 
+/* Nuxt UI's `UTabs` pill variant (`size="xs"`) — the same recessed-track/
+   raised-segment theme frontend-3 uses for its own small inline switches
+   (e.g. `Viewer3PanelsHeaderTools`'s filter-logic tabs): a sunken track
+   holding both triggers, the active one raised on a lighter fill with a
+   soft shadow, everything else flat and muted. */
+.view-switcher {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0 10px 10px;
+  padding: 2px;
+  background: var(--ui-bg-elevated);
+  border-radius: 8px;
+  width: fit-content;
+}
+
+.view-tab {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--ui-text-muted);
+  padding: 4px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.view-tab:hover {
+  color: var(--ui-text-highlighted);
+}
+
+.view-tab.active {
+  background: var(--ui-bg-raised);
+  color: var(--ui-text-highlighted);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+}
+
 /* Overrides .toolbar's `display: flex` — equal specificity, but this rule is
    later in the cascade, so a hidden toolbar/input/button actually disappears. */
 [hidden] {
