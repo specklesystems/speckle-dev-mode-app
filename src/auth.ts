@@ -8,9 +8,21 @@
  * non-PKCE challenge shape and rejects a PKCE-created code.
  */
 
-/** Two registered apps: the hosted Pages origin's `redirectUrl` only accepts
- * that origin, so local dev (localhost:5183) needs its own app id. */
-export const APP_ID = import.meta.env.DEV ? 'd120abde47' : 'f67c31ff29'
+/**
+ * Not hardcoded — keeps the repo neutral of any one deployment's registered
+ * app. Two separate apps exist in practice (the hosted Pages origin's
+ * `redirectUrl` only accepts that origin, so local dev needs its own), set
+ * via `VITE_SPECKLE_APP_ID` differently per environment: `.env.local`
+ * (gitignored) for `pnpm run dev`, a `SPECKLE_APP_ID` repository secret
+ * injected as this same env var for the CI build — see README.
+ */
+export const APP_ID = import.meta.env.VITE_SPECKLE_APP_ID
+if (!APP_ID) {
+  throw new Error(
+    'VITE_SPECKLE_APP_ID is not set — copy .env.example to .env.local (dev) ' +
+      'or set it for the build (CI). See README.'
+  )
+}
 
 const VERIFIER_STORAGE_KEY = 'speckle-dev-mode:pkce-verifier'
 const ORIGIN_STORAGE_KEY = 'speckle-dev-mode:pkce-origin'
