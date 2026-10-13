@@ -4,6 +4,7 @@ import {
   fetchArtifacts,
   downloadQueryableFiles,
   openSsoReauth,
+  legacyObjectIdFrom,
   SsoSessionExpiredError,
   type ModelRef,
   type VersionRef,
@@ -259,19 +260,20 @@ async function attach(
     renderTree(result.root, result.schema, treeMount)
     setStatus(`loaded ${result.schema} (${format}) — ${result.root.totalObjectCount} objects`)
 
+    const legacyObjectId = legacyObjectIdFrom(info)
     currentLoad = {
       bundleSchema: result.schema,
       bundleRoot: result.root,
       legacyRef,
-      legacyObjectId: info.referencedObject,
+      legacyObjectId,
       token
     }
     currentView = 'bundle'
-    if (info.referencedObject) {
+    if (legacyObjectId) {
       if (result.root.totalObjectCount === 0) {
         await showLegacyGraph(
           legacyRef,
-          info.referencedObject,
+          legacyObjectId,
           token,
           `${result.schema} (${format}) mounted with 0 objects`
         )
@@ -406,7 +408,8 @@ async function resolveAndAttach(
   viewSwitcher.hidden = true
 
   if (info.format === 'json') {
-    if (!info.referencedObject) {
+    const legacyObjectId = legacyObjectIdFrom(info)
+    if (!legacyObjectId) {
       setStatus('This version has no bundle, packfile, or referencedObject at all — nothing to show.', true)
       return { schema: null, format: info.format, root: null }
     }
@@ -414,11 +417,11 @@ async function resolveAndAttach(
       bundleSchema: null,
       bundleRoot: null,
       legacyRef,
-      legacyObjectId: info.referencedObject,
+      legacyObjectId,
       token
     }
     currentView = 'legacy'
-    await showLegacyGraph(legacyRef, info.referencedObject, token, 'No bundle or packfile for this version')
+    await showLegacyGraph(legacyRef, legacyObjectId, token, 'No bundle or packfile for this version')
     return { schema: null, format: info.format, root: null }
   }
 

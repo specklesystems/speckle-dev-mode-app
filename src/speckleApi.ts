@@ -48,6 +48,31 @@ export interface VersionInfo {
   referencedObject: string | null
 }
 
+const BUNDLE_REFERENCE_PREFIX = 'bundle.'
+
+/**
+ * `Version.referencedObject` isn't always a legacy content hash — a version
+ * created directly as a bundle (never had a legacy graph to begin with) gets
+ * a synthetic `bundle.<projectId>.<modelId>.<versionId>` marker planted at
+ * creation instead, so the non-nullable legacy field still has *something*.
+ * Sending one of these to the legacy object endpoints always 404s; dispatch
+ * on the prefix only, never parse the embedded triple (it goes stale if the
+ * version is later moved to another model). Server-owned contract:
+ * `speckle-server-internal/packages/server/modules/data/docs/bundle-reference.md`.
+ */
+export function isBundleReference(referencedObject: string | null): boolean {
+  return referencedObject !== null && referencedObject.startsWith(BUNDLE_REFERENCE_PREFIX)
+}
+
+/** The real legacy referencedObject to fetch, or `null` when there isn't one
+ * — either the field itself is null, or it's a {@link isBundleReference}
+ * marker rather than a content hash. */
+export function legacyObjectIdFrom(info: Pick<VersionInfo, 'referencedObject'>): string | null {
+  return info.referencedObject !== null && !isBundleReference(info.referencedObject)
+    ? info.referencedObject
+    : null
+}
+
 interface GqlVersionFields {
   id: string
   referencedObject: string | null
