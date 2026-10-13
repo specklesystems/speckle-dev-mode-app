@@ -282,19 +282,6 @@ body {
   display: none;
 }
 
-.prop {
-  margin-left: 28px;
-  display: flex;
-  gap: 10px;
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  padding: 1px 4px;
-}
-
-.prop-path {
-  color: var(--ui-text-muted);
-  min-width: 220px;
-}
-
 .prop-value {
   color: var(--ui-text-highlighted);
 }
