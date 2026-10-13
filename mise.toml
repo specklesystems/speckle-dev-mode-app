@@ -1,0 +1,11 @@
+[tools]
+node = "22.19.0"
+
+[tasks.i]
+run = 'pnpm i'
+
+[tasks.dev]
+run = 'pnpm run dev'
+
+[tasks.build]
+run = 'pnpm run build'
