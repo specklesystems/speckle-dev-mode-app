@@ -44,20 +44,33 @@ function renderExpandable(
   const childWrap = el('div', 'children collapsed')
   row.appendChild(childWrap)
   let expanded = false
+  /** Separate from `childWrap.childNodes.length` so a failed fetch doesn't
+   * permanently wedge the row: an error row still leaves childNodes
+   * non-empty, but `loaded` stays false, so collapsing and re-expanding
+   * retries instead of just toggling the stale error message. */
+  let loaded = false
   header.addEventListener('click', () => {
     expanded = !expanded
     toggle.textContent = expanded ? '▼' : '▶'
     childWrap.classList.toggle('collapsed', !expanded)
-    if (expanded && childWrap.childNodes.length === 0) {
+    if (expanded && !loaded) {
+      childWrap.innerHTML = ''
       childWrap.appendChild(el('div', 'loading', 'loading…'))
-      Promise.resolve(loadChildren()).then((children) => {
-        childWrap.innerHTML = ''
-        if (children.length === 0) {
-          childWrap.appendChild(el('div', 'empty', '(empty)'))
-          return
-        }
-        for (const child of children) childWrap.appendChild(child)
-      })
+      Promise.resolve(loadChildren())
+        .then((children) => {
+          loaded = true
+          childWrap.innerHTML = ''
+          if (children.length === 0) {
+            childWrap.appendChild(el('div', 'empty', '(empty)'))
+            return
+          }
+          for (const child of children) childWrap.appendChild(child)
+        })
+        .catch((err) => {
+          childWrap.innerHTML = ''
+          const message = err instanceof Error ? err.message : String(err)
+          childWrap.appendChild(el('div', 'empty error', `${message} — collapse and re-expand to retry`))
+        })
     }
   })
   return row

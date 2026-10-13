@@ -10,6 +10,8 @@
  * resolves eagerly (see the Dev Mode discussion this traces back to).
  */
 
+import { throwForErrorResponse } from './speckleApi'
+
 export interface LegacyRef {
   origin: string
   projectId: string
@@ -43,9 +45,7 @@ export async function fetchLegacyObject(
       variables: { projectId: ref.projectId, objectId }
     })
   })
-  if (!resp.ok) {
-    throw new Error(`legacy object fetch failed: ${resp.status} ${resp.statusText}`)
-  }
+  if (!resp.ok) await throwForErrorResponse(resp)
   const body = (await resp.json()) as GqlObjectBody
   if (body.errors?.length) {
     throw new Error(`GraphQL errors: ${body.errors.map((e) => e.message).join(', ')}`)
