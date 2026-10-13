@@ -93,6 +93,18 @@ const loadButton = document.createElement('button')
 loadButton.textContent = 'load data'
 toolbar.appendChild(loadButton)
 
+/** This kiosk is for poking at raw data — actually working with a model
+ * (viewing geometry, comments, the real UI) belongs in the main app. Same
+ * URL shape the input already accepts, so it's just the pasted/loaded URL
+ * opened in a new tab rather than a second thing to maintain. */
+const viewInSpeckleLink = document.createElement('a')
+viewInSpeckleLink.id = 'view-in-speckle'
+viewInSpeckleLink.textContent = 'view in Speckle ↗'
+viewInSpeckleLink.target = '_blank'
+viewInSpeckleLink.rel = 'noopener noreferrer'
+viewInSpeckleLink.hidden = true
+toolbar.appendChild(viewInSpeckleLink)
+
 const status = document.createElement('div')
 status.className = 'status'
 app.appendChild(status)
@@ -331,6 +343,8 @@ function loadFromUrl(rawUrl: string): void {
     return
   }
   setBookmarkableUrl(trimmed)
+  viewInSpeckleLink.href = trimmed
+  viewInSpeckleLink.hidden = false
   resolveAndAttach(model, session.token).catch((err) => {
     setStatus(err instanceof Error ? err.message : String(err), true)
   })
