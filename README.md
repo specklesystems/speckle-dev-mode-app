@@ -33,9 +33,11 @@ redirect round trip if you're not already authenticated.
 ## Hosting
 
 Live at **https://specklesystems.github.io/speckle-dev-mode-app/**.
-`.github/workflows/deploy.yml` builds and deploys on every push to `main`
-(GitHub's standard Actions-based Pages flow — `configure-pages` +
-`upload-pages-artifact` + `deploy-pages`, not the classic branch-push kind).
+`.github/workflows/deploy.yml` builds and force-pushes `dist/` to `gh-pages`
+on every push to `main` (classic branch-push Pages deploy, not the
+Actions `deploy-pages`/environments flow — this repo's `github-pages`
+environment only allow-lists the `gh-pages` branch, and widening that needs
+admin rights neither of us has yet; see the workflow file's comment).
 `main` is protected; ship changes as a feature branch + PR.
 
 ## Auth
