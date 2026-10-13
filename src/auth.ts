@@ -8,7 +8,9 @@
  * non-PKCE challenge shape and rejects a PKCE-created code.
  */
 
-export const APP_ID = 'f67c31ff29'
+/** Two registered apps: the hosted Pages origin's `redirectUrl` only accepts
+ * that origin, so local dev (localhost:5183) needs its own app id. */
+export const APP_ID = import.meta.env.DEV ? 'd120abde47' : 'f67c31ff29'
 
 const VERIFIER_STORAGE_KEY = 'speckle-dev-mode:pkce-verifier'
 const ORIGIN_STORAGE_KEY = 'speckle-dev-mode:pkce-origin'
