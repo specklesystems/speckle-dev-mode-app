@@ -300,13 +300,15 @@ async function resolveAndAttach(
   return result
 }
 
-loadButton.addEventListener('click', () => {
+/** Shared by the button click and the `?url=` deep-link auto-load — same
+ * validation either way, just a different trigger. */
+function loadFromUrl(rawUrl: string): void {
   const session = getStoredSession()
   if (!session) {
     setStatus('Sign in first.', true)
     return
   }
-  const model = parseVersionUrl(urlInput.value.trim())
+  const model = parseVersionUrl(rawUrl.trim())
   if (!model) {
     setStatus('Paste a .../projects/<id>/models/<id> (optionally @<versionId>) URL', true)
     return
@@ -318,7 +320,9 @@ loadButton.addEventListener('click', () => {
   resolveAndAttach(model, session.token).catch((err) => {
     setStatus(err instanceof Error ? err.message : String(err), true)
   })
-})
+}
+
+loadButton.addEventListener('click', () => loadFromUrl(urlInput.value))
 
 installDevModeApi({
   resolveAndAttach,
@@ -328,7 +332,24 @@ installDevModeApi({
   getStatusText: () => status.textContent ?? ''
 })
 
+/**
+ * `?url=` deep-linking. The query param only exists on the ORIGINAL
+ * navigation — signing in (if needed) replaces it with `?access_code=` on
+ * the way back — so it's parked in sessionStorage the moment it's seen and
+ * consumed from there afterward, the same survive-a-redirect pattern
+ * `auth.ts` uses for the PKCE verifier.
+ */
+const DEEP_LINK_STORAGE_KEY = 'speckle-dev-mode:pending-url'
+
+function stashDeepLinkParam(): void {
+  const url = new URLSearchParams(window.location.search).get('url')
+  if (!url) return
+  history.replaceState(null, '', window.location.pathname)
+  sessionStorage.setItem(DEEP_LINK_STORAGE_KEY, url)
+}
+
 async function init(): Promise<void> {
+  stashDeepLinkParam()
   try {
     const token = await completePendingLogin()
     if (token) setStatus('signed in.')
@@ -336,6 +357,18 @@ async function init(): Promise<void> {
     setStatus(err instanceof Error ? err.message : String(err), true)
   }
   renderAuthState()
+
+  const pendingUrl = sessionStorage.getItem(DEEP_LINK_STORAGE_KEY)
+  if (pendingUrl) {
+    urlInput.value = pendingUrl
+    if (getStoredSession()) {
+      sessionStorage.removeItem(DEEP_LINK_STORAGE_KEY)
+      loadFromUrl(pendingUrl)
+    }
+    // Not signed in yet: leave it in sessionStorage and pre-filled in the
+    // field — it'll auto-load the moment sign-in completes and this
+    // function runs again after the redirect back.
+  }
 }
 
 void init()
