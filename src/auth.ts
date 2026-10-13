@@ -24,8 +24,13 @@ if (!APP_ID) {
   )
 }
 
+/** PKCE verifier/origin: single-use, only needed across the redirect round
+ * trip, so sessionStorage (cleared with the tab) is the right scope. */
 const VERIFIER_STORAGE_KEY = 'speckle-dev-mode:pkce-verifier'
 const ORIGIN_STORAGE_KEY = 'speckle-dev-mode:pkce-origin'
+/** The signed-in token itself: localStorage, not sessionStorage — a kiosk
+ * you have to re-authenticate every time you reopen the tab isn't actually
+ * convenient, and the scope (`project.core.read`) is read-only. */
 const TOKEN_STORAGE_KEY = 'speckle-dev-mode:token'
 /** The server a stored token is valid for — a token from one Speckle server is meaningless on another. */
 const TOKEN_ORIGIN_STORAGE_KEY = 'speckle-dev-mode:token-origin'
@@ -51,14 +56,14 @@ export interface StoredSession {
 }
 
 export function getStoredSession(): StoredSession | null {
-  const token = sessionStorage.getItem(TOKEN_STORAGE_KEY)
-  const origin = sessionStorage.getItem(TOKEN_ORIGIN_STORAGE_KEY)
+  const token = localStorage.getItem(TOKEN_STORAGE_KEY)
+  const origin = localStorage.getItem(TOKEN_ORIGIN_STORAGE_KEY)
   return token && origin ? { token, origin } : null
 }
 
 export function clearStoredSession(): void {
-  sessionStorage.removeItem(TOKEN_STORAGE_KEY)
-  sessionStorage.removeItem(TOKEN_ORIGIN_STORAGE_KEY)
+  localStorage.removeItem(TOKEN_STORAGE_KEY)
+  localStorage.removeItem(TOKEN_ORIGIN_STORAGE_KEY)
 }
 
 /** `/authn/verify/{appId}/{challenge}?code_challenge_method=S256` — the consent page.
@@ -111,7 +116,7 @@ export async function completePendingLogin(): Promise<string | null> {
     throw new Error(`token exchange failed: ${resp.status} ${resp.statusText}`)
   }
   const body = (await resp.json()) as { token: string }
-  sessionStorage.setItem(TOKEN_STORAGE_KEY, body.token)
-  sessionStorage.setItem(TOKEN_ORIGIN_STORAGE_KEY, origin)
+  localStorage.setItem(TOKEN_STORAGE_KEY, body.token)
+  localStorage.setItem(TOKEN_ORIGIN_STORAGE_KEY, origin)
   return body.token
 }
