@@ -158,29 +158,24 @@ function renderAuthState(): void {
 }
 
 /** A workspace's SSO session timing out mid-session is routine, not a bug —
- * offer the re-auth tab and a retry rather than just an error string. */
-function setSsoExpiredStatus(
-  err: SsoSessionExpiredError,
-  ref: VersionRef,
-  token: string,
-  format: VersionFormat,
-  info: VersionInfo,
-  legacyRef: LegacyRef
-): void {
+ * offer the re-auth tab and a retry rather than just an error string. Shared
+ * by every call site that can hit a lapsed SSO session (resolving a version,
+ * fetching bundle artifacts, fetching a legacy object): `throwForErrorResponse`
+ * classifies all three identically, so there's one place that knows how to
+ * respond to it. `onRetry` re-runs whatever failed, from scratch. */
+function setSsoExpiredStatus(err: SsoSessionExpiredError, origin: string, onRetry: () => void): void {
   status.textContent = `${err.message}. Re-authenticate, then retry.`
   status.classList.add('error')
   statusAction.innerHTML = ''
 
   const reauthButton = document.createElement('button')
   reauthButton.textContent = `sign in to ${err.workspaceSlug} SSO`
-  reauthButton.addEventListener('click', () => openSsoReauth(ref.origin, err.workspaceSlug))
+  reauthButton.addEventListener('click', () => openSsoReauth(origin, err.workspaceSlug))
   statusAction.appendChild(reauthButton)
 
   const retryButton = document.createElement('button')
   retryButton.textContent = 'retry'
-  retryButton.addEventListener('click', () => {
-    attach(ref, token, format, info, legacyRef).catch(() => {})
-  })
+  retryButton.addEventListener('click', onRetry)
   statusAction.appendChild(retryButton)
 }
 
@@ -243,9 +238,11 @@ export async function attachCore(
 /** Renders into the live UI as a side effect; rethrows so a caller (the click
  * handler, or `window.speckleDevMode`) can also tell success from failure.
  * Also sets up `currentLoad`/the view switcher — `info`/`legacyRef` are only
- * needed for that, not for the attach itself, but threading them through
- * here (rather than back in the caller) means the SSO retry path gets the
- * same switcher bookkeeping as a first-time success. */
+ * needed for that, not for the attach itself. Lets errors (including a
+ * lapsed SSO session) propagate rather than handling them here — the caller
+ * (`resolveAndAttach`, by way of `performLoad`) is the one place that knows
+ * how to respond to those, covering this AND the version-resolution and
+ * legacy-graph fetches around it with the same handling. */
 async function attach(
   ref: VersionRef,
   token: string,
@@ -284,13 +281,6 @@ async function attach(
     }
 
     return { ...result, format }
-  } catch (err) {
-    if (err instanceof SsoSessionExpiredError) {
-      setSsoExpiredStatus(err, ref, token, format, info, legacyRef)
-    } else {
-      setStatus(err instanceof Error ? err.message : String(err), true)
-    }
-    throw err
   } finally {
     loadButton.disabled = false
   }
@@ -360,7 +350,13 @@ async function switchView(mode: ViewMode): Promise<void> {
   try {
     await showLegacyGraph(currentLoad.legacyRef, currentLoad.legacyObjectId, currentLoad.token, null)
   } catch (err) {
-    setStatus(err instanceof Error ? err.message : String(err), true)
+    if (err instanceof SsoSessionExpiredError) {
+      setSsoExpiredStatus(err, currentLoad.legacyRef.origin, () => {
+        void switchView('legacy')
+      })
+    } else {
+      setStatus(err instanceof Error ? err.message : String(err), true)
+    }
   }
 }
 
@@ -441,6 +437,26 @@ function setBookmarkableUrl(rawUrl: string): void {
   history.replaceState(null, '', url.toString())
 }
 
+/** The one place that handles a load failing outright — including a lapsed
+ * SSO session, wherever in the flow it surfaces (version resolution, bundle
+ * artifacts, or the legacy graph; `resolveAndAttach` and everything it calls
+ * let those propagate up to here rather than handling them locally). Retry
+ * re-runs the whole load, which re-resolves the version too rather than
+ * trying to resume mid-flow — simpler, and version resolution is cheap. */
+async function performLoad(model: ModelRef, token: string): Promise<void> {
+  try {
+    await resolveAndAttach(model, token)
+  } catch (err) {
+    if (err instanceof SsoSessionExpiredError) {
+      setSsoExpiredStatus(err, model.origin, () => {
+        void performLoad(model, token)
+      })
+    } else {
+      setStatus(err instanceof Error ? err.message : String(err), true)
+    }
+  }
+}
+
 /** Shared by the button click and the `?url=` deep-link auto-load — same
  * validation either way, just a different trigger. */
 function loadFromUrl(rawUrl: string): void {
@@ -462,9 +478,7 @@ function loadFromUrl(rawUrl: string): void {
   setBookmarkableUrl(trimmed)
   viewInSpeckleLink.href = trimmed
   viewInSpeckleLink.hidden = false
-  resolveAndAttach(model, session.token).catch((err) => {
-    setStatus(err instanceof Error ? err.message : String(err), true)
-  })
+  void performLoad(model, session.token)
 }
 
 loadButton.addEventListener('click', () => loadFromUrl(urlInput.value))

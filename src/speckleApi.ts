@@ -181,7 +181,12 @@ interface ServerErrorBody {
   }
 }
 
-async function throwForErrorResponse(resp: Response): Promise<never> {
+/** Classifies a failed response — an SSO-lapsed 401 becomes
+ * {@link SsoSessionExpiredError}, anything else a plain `Error`. Shared by
+ * every endpoint this kiosk calls with a bearer token (version resolution,
+ * artifacts, the legacy object graph) so a lapsed SSO session gets the same
+ * "re-authenticate, then retry" treatment no matter which call hit it. */
+export async function throwForErrorResponse(resp: Response): Promise<never> {
   let body: ServerErrorBody | null = null
   try {
     body = (await resp.json()) as ServerErrorBody

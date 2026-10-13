@@ -347,3 +347,7 @@ body {
   color: var(--ui-text-dimmed);
   font-style: italic;
 }
+
+.empty.error {
+  color: var(--error);
+}
