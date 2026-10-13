@@ -300,6 +300,18 @@ async function resolveAndAttach(
   return result
 }
 
+/** Mirrors the model URL into `?url=` on a successful load — the same param
+ * `stashDeepLinkParam`/`init` already consume, so the address bar itself
+ * becomes the bookmark: reload (or share the link) and it signs in if
+ * needed, then re-loads this exact model automatically. `replaceState`, not
+ * `pushState` — repeated loads during one exploring session shouldn't pile
+ * up browser-history entries. */
+function setBookmarkableUrl(rawUrl: string): void {
+  const url = new URL(window.location.pathname, window.location.origin)
+  url.searchParams.set('url', rawUrl)
+  history.replaceState(null, '', url.toString())
+}
+
 /** Shared by the button click and the `?url=` deep-link auto-load — same
  * validation either way, just a different trigger. */
 function loadFromUrl(rawUrl: string): void {
@@ -308,7 +320,8 @@ function loadFromUrl(rawUrl: string): void {
     setStatus('Sign in first.', true)
     return
   }
-  const model = parseVersionUrl(rawUrl.trim())
+  const trimmed = rawUrl.trim()
+  const model = parseVersionUrl(trimmed)
   if (!model) {
     setStatus('Paste a .../projects/<id>/models/<id> (optionally @<versionId>) URL', true)
     return
@@ -317,6 +330,7 @@ function loadFromUrl(rawUrl: string): void {
     setStatus(`Signed in to ${session.origin}, but this URL is on ${model.origin} — sign in against that server instead.`, true)
     return
   }
+  setBookmarkableUrl(trimmed)
   resolveAndAttach(model, session.token).catch((err) => {
     setStatus(err instanceof Error ? err.message : String(err), true)
   })
