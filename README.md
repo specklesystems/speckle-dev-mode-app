@@ -27,6 +27,17 @@ Sign in, then paste a URL shaped like
 `https://<server>/projects/<projectId>/models/<modelId>[@<versionId>]`
 (version optional — resolves to latest) and click "load data".
 
+Pass `?url=<that URL>` to pre-fill and auto-load — it survives a sign-in
+redirect round trip if you're not already authenticated.
+
+## Hosting
+
+Live at **https://specklesystems.github.io/speckle-dev-mode-app/**.
+`.github/workflows/deploy.yml` builds and deploys on every push to `main`
+(GitHub's standard Actions-based Pages flow — `configure-pages` +
+`upload-pages-artifact` + `deploy-pages`, not the classic branch-push kind).
+`main` is protected; ship changes as a feature branch + PR.
+
 ## Auth
 
 Registered as a Speckle OAuth app (PKCE, public client — no secret; appId
